@@ -36,17 +36,17 @@ public final class WebserviceConfiguration: CustomStringConvertible, Equatable {
     }
     
     /// Initialize a new service configuration by looking at parameters
-    public convenience init?() {
+    private convenience init?() {
         // Attemp to load the configuration inside the Info.plist of your app.
         // It must be a dictionary of `InfoPlist` type.
         guard let plist = try? Plist<InfoPlist>() else { return nil }
         
         // Initialize with parameters
-        self.init(base: plist.data.configuration.urls.server,
-                  api: "api/v1")
+        self.init(base: plist.data.configuration.baseUrl,
+                  api: plist.data.configuration.api)
         
         // Attempt to read a fixed list of headers from configuration
-        configuration.httpAdditionalHeaders = [:]
+        configuration.httpAdditionalHeaders = plist.data.configuration.headers
     }
     
     /// Readable description
