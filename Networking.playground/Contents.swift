@@ -17,6 +17,7 @@ let request = RequestImplementation(method: RequestMethod.get(nil),
                                     headers: nil)
 let resource = Resource<[Episode]>(request: request)
 let configuration = WebserviceConfiguration(base: "http://localhost:8000", api: nil)!
+
 WebserviceImplementation(configuration).request(resource: resource) { (result) in
     print(result)
 }
