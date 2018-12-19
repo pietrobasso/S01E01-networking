@@ -22,3 +22,10 @@ public extension Resource where A: Decodable {
         }
     }
 }
+
+extension Resource where A == Void {
+    init(request: Request) {
+        self.request = request
+        self.parse = { _ in Result(value: ())}
+    }
+}
