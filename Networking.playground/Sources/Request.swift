@@ -96,26 +96,26 @@ public protocol Request {
     ///
     /// - Parameter service: service in which the request should be used
     /// - Returns: [String : String]
-    func headers(in service: Webservice) -> [String: String]
+    func headers(in service: NetworkingService) -> [String: String]
     
     /// Return the full url of the request when executed in a specific service
     ///
     /// - Parameter service: service
     /// - Returns: URL
-    func url(in service: Webservice) throws -> URL
+    func url(in service: NetworkingService) throws -> URL
     
     /// Create an URLRequest from a Request into the current service.
     ///
     /// - Parameter request: request
     /// - Returns: URLRequest
     /// - Throws: throw an exception if something goes wrong while making data
-    func urlRequest(in service: Webservice) throws -> URLRequest
+    func urlRequest(in service: NetworkingService) throws -> URLRequest
 }
 
 
 // MARK: - Provide default implementation of the Request
 public extension Request {
-    func headers(in service: Webservice) -> [String: String] {
+    func headers(in service: NetworkingService) -> [String: String] {
         var params = service.headers // initial set is composed by service's current headers
         // append (and replace if needed) with request's headers
         headers?.forEach({ k,v in params[k] = v })
@@ -125,7 +125,7 @@ public extension Request {
         return params
     }
     
-    func url(in service: Webservice) throws -> URL {
+    func url(in service: NetworkingService) throws -> URL {
         let endpoint = service.configuration.basePath.appendingPath(directory: self.endpoint).rendered
         guard let url = URL(string: endpoint) else {
             throw NetworkingError.requestError(.invalidURL(endpoint))
@@ -133,7 +133,7 @@ public extension Request {
         return url
     }
     
-    func urlRequest(in service: Webservice) throws -> URLRequest {
+    func urlRequest(in service: NetworkingService) throws -> URLRequest {
         var urlRequest = URLRequest(url: try url(in: service))
         urlRequest.httpMethod = (method ?? .get(nil)).rawValue
         urlRequest.allHTTPHeaderFields = headers(in: service)

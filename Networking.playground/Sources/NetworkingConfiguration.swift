@@ -1,7 +1,7 @@
 import Foundation
 
 /// This class is used to configure network connection with a backend server
-public final class WebserviceConfiguration: CustomStringConvertible, Equatable {
+public final class NetworkingConfiguration: CustomStringConvertible, Equatable {
     
     /// This is the base host url (ie. "http://www.myserver.com/api/v2")
     public let basePath: Path<Relative, Directory>
@@ -30,9 +30,9 @@ public final class WebserviceConfiguration: CustomStringConvertible, Equatable {
     
     /// Attempt to load server configuration from Info.plist
     ///
-    /// - Returns: WebserviceConfiguration if Info.plist of the app can be parsed, `nil` otherwise
-    public static func appConfig() -> WebserviceConfiguration? {
-        return WebserviceConfiguration()
+    /// - Returns: NetworkingConfiguration if Info.plist of the app can be parsed, `nil` otherwise
+    public static func appConfig() -> NetworkingConfiguration? {
+        return NetworkingConfiguration()
     }
     
     /// Initialize a new service configuration by looking at parameters
@@ -61,7 +61,7 @@ public final class WebserviceConfiguration: CustomStringConvertible, Equatable {
     ///   - lhs: configuration a
     ///   - rhs: configuration b
     /// - Returns: `true` if equals, `false` otherwise
-    public static func ==(lhs: WebserviceConfiguration, rhs: WebserviceConfiguration) -> Bool {
+    public static func ==(lhs: NetworkingConfiguration, rhs: NetworkingConfiguration) -> Bool {
         return lhs.basePath.rendered.lowercased() == rhs.basePath.rendered.lowercased()
     }
 }

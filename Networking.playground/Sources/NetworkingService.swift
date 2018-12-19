@@ -1,8 +1,8 @@
 import Foundation
 
-public protocol Webservice {
-    /// This is the configuration used by the service
-    var configuration: WebserviceConfiguration { get }
+public protocol NetworkingService {
+    /// This is the configuration used by the service.
+    var configuration: NetworkingConfiguration { get }
     
     /// An object that coordinates a group of related network data transfer tasks.
     var urlSession: URLSession { get }
@@ -20,15 +20,15 @@ public protocol Webservice {
     func request<A>(resource: Resource<A>, completion: @escaping (Result<A, NetworkingError>) -> ()) throws -> URLSessionTask
 }
 
-public final class WebserviceImplementation: Webservice {
-    public let configuration: WebserviceConfiguration
+public final class NetworkingServiceImplementation: NetworkingService {
+    public let configuration: NetworkingConfiguration
     public let urlSession: URLSession
     public var headers: [String : String] = [:]
     
     /// Initialize a new service with specified configuration
     ///
     /// - Parameter configuration: configuration to use
-    public init(_ configuration: WebserviceConfiguration) {
+    public init(_ configuration: NetworkingConfiguration) {
         self.configuration = configuration
         urlSession = URLSession(configuration: configuration.configuration)
     }
