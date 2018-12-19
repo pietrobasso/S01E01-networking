@@ -18,6 +18,5 @@ let request = RequestImplementation(method: RequestMethod.get(nil),
 let resource = Resource<[Episode]>(request: request)
 let configuration = WebserviceConfiguration(base: "http://localhost:8000", api: nil)!
 
-WebserviceImplementation(configuration).request(resource: resource) { (result) in
-    print(result)
-}
+let task = try? WebserviceImplementation(configuration).request(resource: resource) { print($0) }
+task?.resume()
