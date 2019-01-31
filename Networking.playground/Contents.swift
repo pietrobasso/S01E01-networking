@@ -11,12 +11,13 @@ struct Episode: Decodable {
     let title: String
 }
 
-let request = RequestImplementation(method: RequestMethod.get(nil),
-                                    endpoint: Path<Relative, Directory>(directoryComponents: ["episodes.json"]),
-                                    parameters: nil,
-                                    headers: nil)
-let resource = Resource<[Episode]>(request: request)
-let configuration = NetworkingConfiguration(base: "http://localhost:8000", api: nil)!
+let request = Networking.Request(method: .get(nil),
+                                 endpoint: "episodes.json",
+                                 parameters: nil,
+                                 headers: nil)
+let resource = Networking.Resource<[Episode]>(request: request)
+let configuration = Networking.Configuration(base: "http://localhost:8000", api: nil)!
 
-let task = try? NetworkingServiceImplementation(configuration).request(resource: resource) { print($0) }
+let task = try? Networking.Service(configuration).request(resource: resource) { print($0) }
 task?.resume()
+
