@@ -6,13 +6,26 @@ public enum Networking {}
 ///
 /// Example usage given a struct `Episode: Decodable`
 ///
-///     let request = Networking.Request(method: .get(nil),
-///                                      endpoint: "episodes.json",
-///                                      parameters: nil,
-///                                      headers: nil)
+///     let request = Networking.Request(method: .get,
+///                                      endpoint: "episodes.json")
 ///     let resource = Networking.Resource<[Episode]>(request: request)
-///     let task = try? networkingService.request(resource: resource) { print($0) }
+///     let task = try? networkingService.task(for: resource) { print($0) }
 ///     task?.resume()
+///
+/// ## Inspirations
+///
+/// 1. [Tiny Networking Library](https://talk.objc.io/episodes/S01E1-tiny-networking-library) by objc.io
+/// 2. [How to write Networking Layer in Swift (2nd version)](http://danielemargutti.com/2017/09/10/how-to-write-networking-layer-in-swift-2nd-version/) by Daniele Margutti
+/// 3. [Networking: POST Requests](https://github.com/objcio/S01E08-networking-post-requests/tree/master/Networking%20POST%20Requests.playground/Pages) by objc.io
+/// 4. [Swift Tip: Networking with Codable](https://www.objc.io/blog/2018/02/06/networking-with-codable/) by objc.io
+/// 5. [Adding Caching](https://talk.objc.io/episodes/S01E25-adding-caching) by objc.io
+/// 6. [Prefetching for UITableView](https://andreygordeev.com/2017/02/20/uitableview-prefetching/) by Andrey Gordeev
+///
+/// ## Reactive Extension Inspirations
+///
+/// 1. [API Client in Swift](http://kean.github.io/post/api-client) by Alexander Grebenyuk
+/// 2. [Wrapping a URLRequest in RxSwift](https://github.com/newfivefour/BlogPosts/blob/master/swift-ios-rxswift-urlrequest.md) by newfivefour
+/// 3. [URLSession+Rx](https://github.com/ReactiveX/RxSwift/blob/master/RxCocoa/Foundation/URLSession%2BRx.swift) by Krunoslav Zaher
 ///
 public protocol NetworkingService {
     typealias Result = Networking.Result
@@ -30,13 +43,13 @@ public protocol NetworkingService {
     /// These headers are mirrored automatically to any Request made using the service.
     var headers: [String: String] { get set }
     
-    /// Request a resource.
+    /// Creates a `URLSessionTask` for a given resource.
     ///
     /// - Parameters:
     ///     - resource: Resource to request.
     ///     - completion: Response result.
     /// - Returns: `URLSessionTask`
-    func request<A>(resource: Resource<A>, completion: @escaping (Result<A, Error>) -> ()) throws -> URLSessionTask
+    func task<A>(for resource: Resource<A>, completion: @escaping (Result<A, Error>) -> ()) throws -> URLSessionTask
 }
 
 public protocol NetworkingRequest {
@@ -46,7 +59,10 @@ public protocol NetworkingRequest {
     var endpoint: String { get }
     
     /// HTTP method used to perform the request.
-    var method: Networking.RequestMethod? { get }
+    var method: Networking.HttpMethod? { get }
+    
+    /// The data sent as the message body of a request, such as for an HTTP POST request.
+    var body: Networking.RequestBody? { get }
     
     /// Parameters used to compose the query dictionary into the url.
     /// They will be automatically converted inside the url.
@@ -89,7 +105,7 @@ public extension NetworkingRequest {
         var params = service.headers // initial set is composed by service's current headers
         // append (and replace if needed) with request's headers
         headers?.forEach({ k,v in params[k] = v })
-        if let contentType = method?.body?.contentType {
+        if let contentType = body?.contentType {
             params["Content-Type"] = contentType
         }
         return params
@@ -105,9 +121,9 @@ public extension NetworkingRequest {
     
     public func urlRequest(in service: NetworkingService) throws -> URLRequest {
         var urlRequest = URLRequest(url: try url(in: service))
-        urlRequest.httpMethod = (method ?? .get(nil)).rawValue
+        urlRequest.httpMethod = (method ?? .get).rawValue
         urlRequest.allHTTPHeaderFields = headers(in: service)
-        if let bodyData = try method?.body?.encodedData() {
+        if let bodyData = try body?.encodedData() {
             urlRequest.httpBody = bodyData
         }
         return urlRequest
@@ -128,7 +144,7 @@ public extension Networking {
             urlSession = URLSession(configuration: configuration.configuration)
         }
         
-        public func request<A>(resource: Resource<A>, completion: @escaping (Result<A, Error>) -> ()) throws -> URLSessionTask {
+        public func task<A>(for resource: Resource<A>, completion: @escaping (Result<A, Error>) -> ()) throws -> URLSessionTask {
             return try urlSession.dataTask(with: resource.request.urlRequest(in: self)) { (data, response, error) in
                 switch (data, response, error) {
                 case (_, _, let error?):
@@ -158,11 +174,12 @@ public extension Networking {
 public extension Networking {
     public class Request: NetworkingRequest {
         public let endpoint: String
-        public let method: RequestMethod?
+        public let method: HttpMethod?
+        public let body: RequestBody?
         public let parameters: [String: Any?]?
         public var headers: [String: String]? {
             didSet {
-                guard let contentType = method?.body?.contentType else { return }
+                guard let contentType = body?.contentType else { return }
                 headers?["Content-Type"] = contentType
             }
         }
@@ -170,12 +187,14 @@ public extension Networking {
         /// Initialize a new request.
         ///
         /// - Parameters:
-        ///   - method: HTTP Method request (if not specified, `.get` is used)
-        ///   - endpoint: Endpoint of the request
+        ///   - method: HTTP Method request (if not specified, `.get` is used).
+        ///   - body: Body of the request.
+        ///   - endpoint: Endpoint of the request.
         ///   - parameters: Parameters used to compose the query dictionary into the url.
         ///   - headers: Headers appended to the request.
-        public init(method: RequestMethod = .get(nil), endpoint: String, parameters: [String: Any?]?, headers: [String: String]?) {
+        public init(method: HttpMethod = .get, body: RequestBody? = nil, endpoint: String, parameters: [String: Any?]? = nil, headers: [String: String]? = nil) {
             self.method = method
+            self.body = body
             self.endpoint = endpoint
             self.parameters = parameters
             self.headers = headers
@@ -253,16 +272,16 @@ public extension Networking {
 }
 
 public extension Networking {
-    public enum RequestMethod {
-        case get(RequestBody?)
-        case post(RequestBody?)
-        case put(RequestBody)
-        case patch(RequestBody)
+    public enum HttpMethod {
+        case get
+        case post
+        case put
+        case patch
         case delete
     }
 }
 
-public extension Networking.RequestMethod {
+public extension Networking.HttpMethod {
     public var rawValue: String {
         switch self {
         case .get: return "GET"
@@ -270,16 +289,6 @@ public extension Networking.RequestMethod {
         case .put: return "PUT"
         case .patch: return "PATCH"
         case .delete: return "DELETE"
-        }
-    }
-    
-    public var body: Networking.RequestBody? {
-        switch self {
-        case .get(let body): return body
-        case .post(let body): return body
-        case .put(let body): return body
-        case .patch(let body): return body
-        case .delete: return nil
         }
     }
 }
