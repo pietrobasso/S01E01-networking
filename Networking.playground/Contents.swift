@@ -10,10 +10,21 @@ struct Episode: Decodable {
     let title: String
 }
 
+let configuration = Networking.Configuration(base: "http://localhost:8000", api: nil)!
 let request = Networking.Request(method: .get,
                                  endpoint: "episodes.json")
-let resource = Networking.Resource<[Episode]>(request: request)
-let configuration = Networking.Configuration(base: "http://localhost:8000", api: nil)!
+let episodes = Networking.Resource<[Episode]>(request: request)
 
-let task = try? Networking.Service(configuration).task(for: resource) { print($0) }
+let task = try? Networking.Service(configuration).task(for: episodes) { print($0) }
 task?.resume()
+
+let testService = Networking.TestService(configuration: configuration,
+                                         responses: [Networking.ResourceAndResponse(episodes,
+                                                                                    response: Networking.Result(value: [Episode(id: "1", title: "Test")]))])
+
+func displayEpisodes() {
+    try? testService.task(for: episodes) { print($0) }
+}
+
+displayEpisodes()
+testService.verify()

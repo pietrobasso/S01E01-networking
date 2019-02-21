@@ -357,6 +357,14 @@ public extension Networking {
     }
 }
 
+public extension Networking.Resource {
+    typealias Resource = Networking.Resource
+    
+    public func map<B>(_ transform: @escaping (A) -> B) -> Resource<B> {
+        return Resource<B>(request: request) { self.parse($0).map(transform) }
+    }
+}
+
 public extension Networking.Resource where A: Decodable {
     typealias Result = Networking.Result
     typealias Error = Networking.Error
@@ -390,18 +398,27 @@ public extension Networking {
         case success(T)
         case failure(Error)
         
-        init(value: T) {
+        public init(value: T) {
             self = .success(value)
         }
         
-        init(error: Error) {
+        public init(error: Error) {
             self = .failure(error)
         }
         
-        func map<U>(_ transform: (T) -> U) -> Result<U, Error> {
+        public func map<U>(_ transform: (T) -> U) -> Result<U, Error> {
             switch self {
             case .success(let x): return .success(transform(x))
             case .failure(let e): return .failure(e)
+            }
+        }
+        
+        public func flatMap<U>(_ transform: (T) -> Result<U, Error>) -> Result<U, Error> {
+            switch self {
+            case let .success(success):
+                return transform(success)
+            case let .failure(failure):
+                return .failure(failure)
             }
         }
     }
