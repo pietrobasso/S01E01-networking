@@ -2,7 +2,7 @@ import Foundation
 
 public enum Networking {}
 
-/// Networking Service inspired from Swift Talk Episode 1: [Networking](https://talk.objc.io/episodes/S01E01-networking).
+/// Networking Service inspired by Swift Talk Episode 1: [Networking](https://talk.objc.io/episodes/S01E01-networking).
 ///
 /// Example usage given a struct `Episode: Decodable`
 ///
@@ -28,161 +28,169 @@ public enum Networking {}
 /// 3. [URLSession+Rx](https://github.com/ReactiveX/RxSwift/blob/master/RxCocoa/Foundation/URLSession%2BRx.swift) by Krunoslav Zaher
 ///
 public protocol NetworkingService {
+    
+    typealias Configuration = Networking.Configuration
+    typealias Resource = Networking.Resource
     typealias Result = Networking.Result
     typealias Error = Networking.Error
-    typealias Resource = Networking.Resource
     
-    /// Configuration used by the service.
-    var configuration: Networking.Configuration { get }
+    /// Configuration used to configure network connection with a backend server.
+    var configuration: Configuration { get }
     
     /// An object that coordinates a group of related network data transfer tasks.
     var urlSession: URLSession { get }
     
-    /// Headers used by the service.
-    ///
-    /// These headers are mirrored automatically to any Request made using the service.
-    var headers: [String: String] { get set }
+    /// Behavior used by the service.
+    var behavior: CombinedRequestBehavior { get }
     
     /// Creates a `URLSessionTask` for a given resource.
     ///
+    /// Combines the behavior for the individual resource and the behavior for the whole service.
+    /// It builds the request using the `additionalHeaders` and `additionalParameters`,
+    /// and then it calls `beforeSend` and `after(result:)` at the appropriate times and with the appropriate values.
+    ///
     /// - Parameters:
     ///     - resource: Resource to request.
-    ///     - completion: Response result.
+    ///     - completion: The completion handler to call when the load request is complete.
     /// - Returns: `URLSessionTask`
     func task<A>(for resource: Resource<A>, completion: @escaping (Result<A, Error>) -> ()) throws -> URLSessionTask
+    
 }
 
 public protocol NetworkingRequest {
+    
+    typealias HttpMethod = Networking.HttpMethod
+    typealias RequestBody = Networking.RequestBody
     typealias Error = Networking.Error
+    
+    /// HTTP method used to perform the request.
+    var method: HttpMethod? { get }
+    
+    /// The data sent as the message body of a request, such as for an HTTP POST request.
+    var body: RequestBody? { get }
     
     /// Endpoint of the request (ie. `auth/login`).
     var endpoint: String { get }
     
-    /// HTTP method used to perform the request.
-    var method: Networking.HttpMethod? { get }
-    
-    /// The data sent as the message body of a request, such as for an HTTP POST request.
-    var body: Networking.RequestBody? { get }
-    
-    /// Parameters used to compose the query dictionary into the url.
-    /// They will be automatically converted inside the url.
-    /// `null` value wil be ignored automatically; all values must be also represented as `String`,
-    /// otherwise will be ignored.
-    /// For example `{ "p1" : "abc", "p2" : null, "p3" : 3 }` will be `.../endpoint?p1=abc&p3=3`
-    var parameters: [String : Any?]? { get }
-    
-    /// Optional headers to append to the request.
-    var headers: [String: String]? { get }
-    
-    /// Combines the specific request headers with the service's list
-    /// and produce the headers to send along the request.
-    /// You may not need to override this function; default implementation is already provided.
-    /// Note: Default implementation prioritizie request's specific headers, so in case of duplicate
-    /// header's key request's value win over the service's value.
-    ///
-    /// - Parameter service: service in which the request should be used.
-    /// - Returns: `[String : String]`
-    func headers(in service: NetworkingService) -> [String: String]
-    
+    /// Behavior used by the request.
+    var behavior: CombinedRequestBehavior { get }
     /// Full url of the request when executed in a specific service.
+    
     ///
-    /// - Parameter service: service
+    /// Combines the specific request behavior with the service's behavior to create the full url for the request.
+    ///
+    /// - Parameter service: Networking Service where the task will be executed.
     /// - Returns: `URL`
+    /// - Throws:
+    ///     throws an exception if the URL cannot be formed with the string
+    ///     (for example, if the string contains characters that are illegal in a URL, or is an empty string).
     func url(in service: NetworkingService) throws -> URL
     
-    /// Create an URLRequest from a Request into the current service.
+    /// Create a URLRequest from a Request into the current service.
     ///
-    /// - Parameter request: request
+    /// Combines the specific request behavior with the service's behavior.
+    /// You may not need to override this function; default implementation is already provided.
+    /// - Important:
+    ///     Default implementation prioritizie the individual request behavior, so in case of duplicates
+    ///     the individual request behavior wins over the service's behavior.
+    ///
+    /// - Parameter service: Networking Service where the task will be executed.
     /// - Returns: URLRequest
-    /// - Throws: throw an exception if something goes wrong while making data
+    /// - Throws: throws an exception if something goes wrong while encoding the request body.
     func urlRequest(in service: NetworkingService) throws -> URLRequest
+    
 }
 
-
-// MARK: - Provide default implementation of the Request
 public extension NetworkingRequest {
-    public func headers(in service: NetworkingService) -> [String: String] {
-        var params = service.headers // initial set is composed by service's current headers
-        // append (and replace if needed) with request's headers
-        headers?.forEach({ k,v in params[k] = v })
-        if let contentType = body?.contentType {
-            params["Content-Type"] = contentType
-        }
-        return params
-    }
     
     public func url(in service: NetworkingService) throws -> URL {
         let endpoint = [service.configuration.basePath, self.endpoint].joined(separator: "/")
-        guard let url = URL(string: endpoint) else {
+        guard var url = URL(string: endpoint) else {
             throw Error.requestError(.invalidURL(endpoint))
         }
+        service.behavior.appending(contentsOf: behavior).addParameters(to: &url)
         return url
     }
     
     public func urlRequest(in service: NetworkingService) throws -> URLRequest {
         var urlRequest = URLRequest(url: try url(in: service))
         urlRequest.httpMethod = (method ?? .get).rawValue
-        urlRequest.allHTTPHeaderFields = headers(in: service)
+        service.behavior.appending(contentsOf: behavior).addHeaders(to: &urlRequest)
         if let bodyData = try body?.encodedData() {
             urlRequest.httpBody = bodyData
         }
+        if let contentType = body?.contentType {
+            urlRequest.addValue(contentType, forHTTPHeaderField: "Content-Type")
+        }
         return urlRequest
     }
+    
 }
 
+// MARK: - Extension: NetworkingService Implementation
 public extension Networking {
+    
     public final class Service: NetworkingService {
+        
         public let configuration: Configuration
+        
         public let urlSession: URLSession
-        public var headers: [String : String] = [:]
+        
+        public let behavior: CombinedRequestBehavior
         
         /// Initialize a new service with the specified configuration.
         ///
         /// - Parameter configuration: configuration to use
-        public init(_ configuration: Networking.Configuration) {
+        public init(_ configuration: Networking.Configuration, behaviors: CombinedRequestBehavior = CombinedRequestBehavior()) {
             self.configuration = configuration
+            self.behavior = behaviors
             urlSession = URLSession(configuration: configuration.configuration)
         }
         
         public func task<A>(for resource: Resource<A>, completion: @escaping (Result<A, Error>) -> ()) throws -> URLSessionTask {
-            return try urlSession.dataTask(with: resource.request.urlRequest(in: self)) { (data, response, error) in
+            let request = try resource.request.urlRequest(in: self)
+            let behavior = self.behavior.appending(contentsOf: resource.request.behavior)
+            behavior.beforeSend()
+            let afterSend: (Result<A, Error>) -> () = { (result) in
+                behavior.appending(contentsOf: resource.request.behavior).after(result: result)
+                completion(result)
+            }
+            return urlSession.dataTask(with: request) { (data, response, error) in
                 switch (data, response, error) {
                 case (_, _, let error?):
                     if let response = response as? HTTPURLResponse {
-                        completion(Result(error: .requestError(.apiError(response.statusCode))))
+                        afterSend(Result(error: .requestError(.apiError(response.statusCode))))
                     } else {
-                        completion(Result(error: .requestError(.error(error))))
+                        afterSend(Result(error: .requestError(.error(error))))
                     }
                 case (let data?, let response?, _):
                     guard let response = response as? HTTPURLResponse else {
-                        completion(Result(error: .requestError(.noHTTPResponse)))
+                        afterSend(Result(error: .requestError(.noHTTPResponse)))
                         return
                     }
                     if case (200..<300) = response.statusCode {
-                        completion(resource.parse(data))
+                        afterSend(resource.parse(data))
                     } else {
-                        completion(Result(error: .requestError(.apiError(response.statusCode))))
+                        afterSend(Result(error: .requestError(.apiError(response.statusCode))))
                     }
                 default:
                     fatalError("Invalid response combination \(data.debugDescription), \(response.debugDescription), \(error.debugDescription)")
                 }
             }
         }
+        
     }
+    
 }
 
-public extension Networking {
+// MARK: - Extension: NetworkingRequest Implementation
+extension Networking {
+    
     public class Request: NetworkingRequest {
         public let endpoint: String
         public let method: HttpMethod?
         public let body: RequestBody?
-        public let parameters: [String: Any?]?
-        public var headers: [String: String]? {
-            didSet {
-                guard let contentType = body?.contentType else { return }
-                headers?["Content-Type"] = contentType
-            }
-        }
+        public let behavior: CombinedRequestBehavior
         
         /// Initialize a new request.
         ///
@@ -190,19 +198,21 @@ public extension Networking {
         ///   - method: HTTP Method request (if not specified, `.get` is used).
         ///   - body: Body of the request.
         ///   - endpoint: Endpoint of the request.
-        ///   - parameters: Parameters used to compose the query dictionary into the url.
-        ///   - headers: Headers appended to the request.
-        public init(method: HttpMethod = .get, body: RequestBody? = nil, endpoint: String, parameters: [String: Any?]? = nil, headers: [String: String]? = nil) {
+        ///   - behavior: Behavior of the request.
+        public init(method: HttpMethod = .get, body: RequestBody? = nil, endpoint: String, behavior: CombinedRequestBehavior = CombinedRequestBehavior()) {
             self.method = method
             self.body = body
             self.endpoint = endpoint
-            self.parameters = parameters
-            self.headers = headers
+            self.behavior = behavior
         }
+        
     }
+    
 }
 
+// MARK: - Extension: Configuration
 public extension Networking {
+    
     /// Class used to configure network connection with a backend server.
     public final class Configuration: CustomStringConvertible, Equatable {
         
@@ -210,48 +220,44 @@ public extension Networking {
         public let basePath: String
         
         /// A configuration object that defines behavior and policies for a URL session.
-        public var configuration: URLSessionConfiguration = {
-            let configuration = URLSessionConfiguration.default
-            if #available(iOS 11.0, *) {
-                configuration.waitsForConnectivity = true
-            }
-            return configuration
-        }()
+        public let configuration: URLSessionConfiguration
         
         /// Additional Dispatch Queue for async operations.
-        public var dispatchQueue = DispatchQueue(label: "com.lisca.networking", qos: .utility, attributes: .concurrent)
+        public let dispatchQueue: DispatchQueue
         
         /// Initialize a new service configuration.
         ///
         /// - Parameters:
         ///   - base: base url of the service
         ///   - api: path to APIs service endpoint
-        public init?(base: String, api: String?) {
+        public init?(base: String, api: String?, configuration: URLSessionConfiguration = .default) {
             guard URL(string: base) != nil else { return nil }
             self.basePath = [base, api]
                 .compactMap { $0 }
                 .joined(separator: "/")
+            self.configuration = configuration
+            self.dispatchQueue = DispatchQueue(label: basePath, qos: .utility, attributes: .concurrent)
         }
         
         /// Attempt to load server configuration from `Info.plist`.
         ///
         /// - Returns: NetworkingConfiguration if `Info.plist` of the app can be parsed, `nil` otherwise.
-        public static func appConfig() -> Configuration? {
-            return Configuration()
+        public static func appConfig(configuration: URLSessionConfiguration = .default) -> Configuration? {
+            return Configuration(configuration: configuration)
         }
         
         /// Initialize a new service configuration by looking at `Info.plist` parameters.
-        private convenience init?() {
+        private convenience init?(configuration: URLSessionConfiguration = .default) {
             // Attempt to load the configuration inside the Info.plist of your app.
-            // It must be a dictionary of `InfoPlist` type.
             guard let plist = Bundle.main.infoDictionary else { return nil }
             
             // Initialize with parameters
             self.init(base: plist["baseUrl"] as? String ?? "",
-                      api: plist["api"] as? String)
+                      api: plist["api"] as? String,
+                      configuration: configuration)
             
             // Attempt to read a fixed list of headers from configuration
-            configuration.httpAdditionalHeaders = plist["httpHeaders"] as? [String: String]
+            configuration.httpAdditionalHeaders = plist["httpHeaders"] as? [String : String]
         }
         
         /// Readable description.
@@ -259,7 +265,7 @@ public extension Networking {
             return "\(self.basePath)"
         }
         
-        /// A Service configuration is equal to another if both url and path to APIs endpoint are the same.
+        /// A Service configuration is equal to another if both base paths are the same.
         ///
         /// - Parameters:
         ///   - lhs: configuration a
@@ -268,32 +274,27 @@ public extension Networking {
         public static func ==(lhs: Configuration, rhs: Configuration) -> Bool {
             return lhs.basePath.lowercased() == rhs.basePath.lowercased()
         }
+        
     }
+    
 }
 
+// MARK: - Extension: Request Method
 public extension Networking {
-    public enum HttpMethod {
-        case get
-        case post
-        case put
-        case patch
-        case delete
+    
+    public enum HttpMethod: String {
+        case get = "GET"
+        case post = "POST"
+        case put = "PUT"
+        case patch = "PATCH"
+        case delete = "DELETE"
     }
+    
 }
 
-public extension Networking.HttpMethod {
-    public var rawValue: String {
-        switch self {
-        case .get: return "GET"
-        case .post: return "POST"
-        case .put: return "PUT"
-        case .patch: return "PATCH"
-        case .delete: return "DELETE"
-        }
-    }
-}
-
+// MARK: - Extension: Request Body
 public extension Networking {
+    
     /// The data sent as the message body of a request, such as for an HTTP POST request.
     public enum RequestBody {
         typealias Error = Networking.Error
@@ -302,9 +303,11 @@ public extension Networking {
         case json([String: Any?])
         case urlEncoded([String: Any?])
     }
+    
 }
 
 public extension Networking.RequestBody {
+    
     public var contentType: String? {
         switch self {
         case .json:
@@ -325,47 +328,50 @@ public extension Networking.RequestBody {
             return data
         case let .json(dictionary):
             return try JSONSerialization.data(withJSONObject: dictionary)
-        case let .urlEncoded(dictionary):
-            let encodedString = try Networking.RequestBody.urlEncodedString(forDictionary: dictionary)
-            guard let data = encodedString.data(using: .utf8) else {
-                throw Error.codingError(.dataIsNotEncodable(encodedString))
-            }
-            return data
+        case let .urlEncoded(body):
+            return try urlEncodedData(with: body)
         }
     }
     
-    private static func urlEncodedString(forDictionary dictionary: [String: Any?], base: String = "") throws -> String {
-        guard dictionary.count > 0 else { return base }
-        let items: [URLQueryItem]? = dictionary.compactMap { (key, value) -> URLQueryItem? in
-            guard let value = value else { return nil }
-            return URLQueryItem(name: key, value: String(describing: value))
-            }
-            .reduce(into: nil) { return $0?.append($1) }
-        var urlComponents = URLComponents(string: base)
+    private func urlEncodedData(with body: [String: Any?]) throws -> Data {
+        var urlComponents = URLComponents(string: "")
+        let items: [URLQueryItem] = body
+            .compactMap { (key, value) -> URLQueryItem? in
+                guard let value = value else { return nil }
+                return URLQueryItem(name: key, value: String(describing: value))
+        }
+        guard !items.isEmpty else { return Data() }
         urlComponents?.queryItems = items
-        guard let encodedString = urlComponents?.url else {
+        guard let data = urlComponents?.query?.data(using: .utf8) else {
             throw Error.codingError(.dataIsNotEncodable(self))
         }
-        return encodedString.absoluteString
+        return data
     }
+    
 }
 
+// MARK: - Extension: Resource
 public extension Networking {
+    
     public struct Resource<A> {
         let request: NetworkingRequest
         let parse: (Data) -> Result<A, Error>
     }
+    
 }
 
 public extension Networking.Resource {
+    
     typealias Resource = Networking.Resource
     
     public func map<B>(_ transform: @escaping (A) -> B) -> Resource<B> {
         return Resource<B>(request: request) { self.parse($0).map(transform) }
     }
+    
 }
 
 public extension Networking.Resource where A: Decodable {
+    
     typealias Result = Networking.Result
     typealias Error = Networking.Error
     
@@ -384,16 +390,21 @@ public extension Networking.Resource where A: Decodable {
             }
         }
     }
+    
 }
 
 public extension Networking.Resource where A == Void {
+    
     public init(request: NetworkingRequest) {
         self.request = request
         self.parse = { _ in Result(value: ())}
     }
+    
 }
 
+// MARK: - Extension: Result
 public extension Networking {
+    
     public enum Result<T, Error> {
         case success(T)
         case failure(Error)
@@ -422,9 +433,12 @@ public extension Networking {
             }
         }
     }
+    
 }
 
+// MARK: - Extension: Error
 public extension Networking {
+    
     public enum Error: Swift.Error {
         case codingError(CodingError)
         case requestError(RequestError)
@@ -444,4 +458,5 @@ public extension Networking {
         case decodingFailed(Swift.Error?)
         case dataIsNotEncodable(Any)
     }
+    
 }
